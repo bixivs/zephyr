@@ -1,0 +1,9 @@
+# Kconfig - nRF52 Aconno ACN52832 board configuration
+#
+# Copyright (c) 2016 Nordic Semiconductor ASA
+#
+# SPDX-License-Identifier: Apache-2.0
+
+if BOARD_ACN52832
+
+endif # BOARD_ACN52832
