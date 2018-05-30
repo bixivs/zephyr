@@ -21,5 +21,7 @@
 #define LED2_GPIO_PIN  24
 #define LED2_GPIO_PORT CONFIG_GPIO_NRF5_P0_DEV_NAME
 
+#define LED_ON  0
+#define LED_OFF 1
 
 #endif /* __INC_BOARD_H */
