@@ -497,9 +497,15 @@ typedef struct _thread_base _thread_base_t;
 #if defined(CONFIG_THREAD_STACK_INFO)
 /* Contains the stack information of a thread */
 struct _thread_stack_info {
-	/* Stack Start */
+	/* Stack Start - Identical to K_THREAD_STACK_BUFFER() on the stack
+	 * object. Represents thread-writable stack area without any extras.
+	 */
 	u32_t start;
-	/* Stack Size */
+
+	/* Stack Size - Thread writable stack buffer size. Represents
+	 * the size of the actual area, starting from the start member,
+	 * that should be writable by the thread
+	 */
 	u32_t size;
 };
 
@@ -4625,6 +4631,10 @@ static inline char *K_THREAD_STACK_BUFFER(k_thread_stack_t *sym)
  * parameter of k_thread_create(), it may not be the same as the
  * 'size' parameter. Use K_THREAD_STACK_SIZEOF() instead.
  *
+ * Some arches may round the size of the usable stack region up to satisfy
+ * alignment constraints. K_THREAD_STACK_SIZEOF() will return the aligned
+ * size.
+ *
  * @param sym Thread stack symbol name
  * @param size Size of the stack memory region
  * @req K-TSTACK-001
@@ -4673,12 +4683,8 @@ static inline char *K_THREAD_STACK_BUFFER(k_thread_stack_t *sym)
  * since the underlying implementation may actually create something larger
  * (for instance a guard area).
  *
- * The value returned here is guaranteed to match the 'size' parameter
- * passed to K_THREAD_STACK_DEFINE.
- *
- * Do not use this for stacks declared with K_THREAD_STACK_ARRAY_DEFINE(),
- * it is not guaranteed to return the original value since each array
- * element must be aligned.
+ * The value returned here is not guaranteed to match the 'size' parameter
+ * passed to K_THREAD_STACK_DEFINE and may be larger.
  *
  * @param sym Stack memory symbol
  * @return Size of the stack
