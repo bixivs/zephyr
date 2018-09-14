@@ -162,12 +162,12 @@ static inline u32_t retry_timeout(const struct net_tcp *tcp)
 				CONFIG_NET_TCP_INIT_RETRANSMISSION_TIMEOUT;
 }
 
-#define is_6lo_technology(pkt)						    \
+#define is_6lo_technology(pkt)						\
 	(IS_ENABLED(CONFIG_NET_IPV6) &&	net_pkt_family(pkt) == AF_INET6 &&  \
-	 ((IS_ENABLED(CONFIG_NET_L2_BT) &&			    \
-	   net_pkt_ll_dst(pkt)->type == NET_LINK_BLUETOOTH) ||		    \
-	  (IS_ENABLED(CONFIG_NET_L2_IEEE802154) &&			    \
-	   net_pkt_ll_dst(pkt)->type == NET_LINK_IEEE802154)))
+	 ((IS_ENABLED(CONFIG_NET_L2_BT) &&				\
+	   net_pkt_lladdr_dst(pkt)->type == NET_LINK_BLUETOOTH) ||	\
+	  (IS_ENABLED(CONFIG_NET_L2_IEEE802154) &&			\
+	   net_pkt_lladdr_dst(pkt)->type == NET_LINK_IEEE802154)))
 
 /* The ref should not be done for Bluetooth and IEEE 802.15.4 which use
  * IPv6 header compression (6lo). For BT and 802.15.4 we copy the pkt
@@ -1965,6 +1965,10 @@ static int send_reset(struct net_context *context,
 
 /* This is called when we receive data after the connection has been
  * established. The core TCP logic is located here.
+ *
+ * Prototype:
+ * enum net_verdict tcp_established(struct net_conn *conn, struct net_pkt *pkt,
+ *                                  void *user_data)
  */
 NET_CONN_CB(tcp_established)
 {
@@ -2146,6 +2150,12 @@ clean_up:
 }
 
 
+/*
+ * Prototype:
+ * enum net_verdict tcp_synack_received(struct net_conn *conn,
+ *                                      struct net_pkt *pkt,
+ *                                      void *user_data)
+ */
 NET_CONN_CB(tcp_synack_received)
 {
 	struct net_context *context = (struct net_context *)user_data;
@@ -2295,6 +2305,10 @@ static inline void copy_pool_vars(struct net_context *new_context,
  * a packet. We need to check if we are receiving proper msg (SYN) here.
  * The ACK could also be received, in which case we have an established
  * connection.
+ *
+ * Prototype:
+ * enum net_verdict tcp_syn_rcvd(struct net_conn *conn, struct net_pkt *pkt,
+ *                               void *user_data)
  */
 NET_CONN_CB(tcp_syn_rcvd)
 {
