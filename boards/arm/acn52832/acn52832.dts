@@ -21,6 +21,34 @@
 		zephyr,sram = &sram0;
 		zephyr,flash = &flash0;
 	};
+
+	leds {
+		compatible = "gpio-leds";
+		led0: led@0 {
+			gpios = <&gpio0 24 GPIO_INT_ACTIVE_LOW>;
+			label = "Green LED";
+		};
+		led1: led@1 {
+			gpios = <&gpio0 22 GPIO_INT_ACTIVE_LOW>;
+			label = "Red LED";
+		};
+		led2: led@2 {
+			gpios = <&gpio0 23 GPIO_INT_ACTIVE_LOW>;
+			label = "Blue LED";
+		};
+	};
+
+
+	/* These aliases are provided for compatibility with samples */
+	aliases {
+		led0 = &led0;
+		led1 = &led1;
+		led2 = &led2;
+	};
+};
+
+&adc {
+	status ="ok";
 };
 
 &gpiote {
@@ -35,6 +63,10 @@
 	status = "ok";
 	compatible = "nordic,nrf-uart";
 	current-speed = <115200>;
+	tx-pin = <26>;
+	rx-pin = <27>;
+	rts-pin = <25>;
+	cts-pin = <28>;
 };
 
 /*
