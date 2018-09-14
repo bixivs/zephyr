@@ -809,6 +809,7 @@ enum net_verdict net_conn_input(enum net_ip_protocol proto, struct net_pkt *pkt)
 	s16_t best_rank = -1;
 	u16_t src_port, dst_port;
 	u16_t chksum;
+	struct net_if *pkt_iface = net_pkt_iface(pkt);
 
 #if defined(CONFIG_NET_CONN_CACHE)
 	enum net_verdict verdict;
@@ -866,12 +867,10 @@ enum net_verdict net_conn_input(enum net_ip_protocol proto, struct net_pkt *pkt)
 
 		if (IS_ENABLED(CONFIG_NET_IPV4) &&
 		    net_pkt_family(pkt) == AF_INET) {
-			data_len = NET_IPV4_HDR(pkt)->len[0] * 256 +
-				NET_IPV4_HDR(pkt)->len[1];
+			data_len = ntohs(NET_IPV4_HDR(pkt)->len);
 		} else if (IS_ENABLED(CONFIG_NET_IPV6) &&
 			   net_pkt_family(pkt) == AF_INET6) {
-			data_len = NET_IPV6_HDR(pkt)->len[0] * 256 +
-				NET_IPV6_HDR(pkt)->len[1];
+			data_len = ntohs(NET_IPV6_HDR(pkt)->len);
 		}
 
 		NET_DBG("Check %s listener for pkt %p src port %u dst port %u "
@@ -996,7 +995,7 @@ enum net_verdict net_conn_input(enum net_ip_protocol proto, struct net_pkt *pkt)
 			goto drop;
 		}
 
-		net_stats_update_per_proto_recv(net_pkt_iface(pkt), proto);
+		net_stats_update_per_proto_recv(pkt_iface, proto);
 
 		return NET_OK;
 	}
@@ -1029,7 +1028,7 @@ enum net_verdict net_conn_input(enum net_ip_protocol proto, struct net_pkt *pkt)
 	}
 
 drop:
-	net_stats_update_per_proto_drop(net_pkt_iface(pkt), proto);
+	net_stats_update_per_proto_drop(pkt_iface, proto);
 
 	return NET_DROP;
 }

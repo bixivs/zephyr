@@ -8,10 +8,7 @@
 #define _ksched__h_
 
 #include <kernel_structs.h>
-
-#ifdef CONFIG_KERNEL_EVENT_LOGGER
-#include <logging/kernel_event_logger.h>
-#endif /* CONFIG_KERNEL_EVENT_LOGGER */
+#include <tracing.h>
 
 #ifdef CONFIG_MULTITHREADING
 #define _VALID_PRIO(prio, entry_point) \
@@ -107,11 +104,6 @@ static inline int _is_thread_state_set(struct k_thread *thread, u32_t state)
 	return !!(thread->base.thread_state & state);
 }
 
-static inline int _is_thread_polling(struct k_thread *thread)
-{
-	return _is_thread_state_set(thread, _THREAD_POLLING);
-}
-
 static inline int _is_thread_queued(struct k_thread *thread)
 {
 	return _is_thread_state_set(thread, _THREAD_QUEUED);
@@ -151,16 +143,6 @@ static inline void _reset_thread_states(struct k_thread *thread,
 					u32_t states)
 {
 	thread->base.thread_state &= ~states;
-}
-
-static inline void _mark_thread_as_polling(struct k_thread *thread)
-{
-	_set_thread_states(thread, _THREAD_POLLING);
-}
-
-static inline void _mark_thread_as_not_polling(struct k_thread *thread)
-{
-	_reset_thread_states(thread, _THREAD_POLLING);
 }
 
 static inline void _mark_thread_as_queued(struct k_thread *thread)
@@ -240,9 +222,8 @@ static inline void _ready_thread(struct k_thread *thread)
 		_add_thread_to_ready_q(thread);
 	}
 
-#ifdef CONFIG_KERNEL_EVENT_LOGGER_THREAD
-	_sys_k_event_logger_thread_ready(thread);
-#endif
+	sys_trace_thread_ready(thread);
+
 }
 
 static inline void _ready_one_thread(_wait_q_t *wq)

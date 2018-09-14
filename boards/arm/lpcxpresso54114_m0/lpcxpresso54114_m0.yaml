@@ -11,9 +11,8 @@ arch: arm
 ram: 32
 flash: 64
 testing:
-  default: true
   ignore_tags:
     - net
 toolchain:
   - zephyr
-  - gccarmemb
+  - gnuarmemb

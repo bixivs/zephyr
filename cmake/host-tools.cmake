@@ -2,7 +2,7 @@ include(${ZEPHYR_BASE}/cmake/host-tools-zephyr.cmake)
 
 # Search for the must-have program dtc on PATH and in
 # TOOLCHAIN_HOME. Usually DTC will be provided by an SDK, but for
-# SDK-less projects like gccarmemb, it is up to the user to install
+# SDK-less projects like gnuarmemb, it is up to the user to install
 # dtc.
 find_program(
   DTC
@@ -24,6 +24,12 @@ endif()
 find_program(
   OPENOCD
   openocd
+  )
+
+# bossac is an optional dependency
+find_program(
+  BOSSAC
+  bossac
   )
 
 # TODO: Should we instead find one qemu binary for each ARCH?

@@ -23,7 +23,7 @@
 #include <sw_isr_table.h>
 #include <irq.h>
 #include <kernel_structs.h>
-#include <logging/kernel_event_logger.h>
+#include <tracing.h>
 
 extern void __reserved(void);
 
@@ -137,7 +137,6 @@ void _irq_spurious(void *unused)
  * arch/cpu.h and kernel_structs.h; the inline functions typically need to
  * perform operations on _kernel.  For now, leave as regular functions, a
  * future iteration will resolve this.
- * We have a similar issue with the k_event_logger functions.
  *
  * See https://github.com/zephyrproject-rtos/zephyr/issues/3056
  */
@@ -146,7 +145,7 @@ void _irq_spurious(void *unused)
 void _arch_isr_direct_pm(void)
 {
 #if defined(CONFIG_ARMV6_M_ARMV8_M_BASELINE)
-	int key;
+	unsigned int key;
 
 	/* irq_lock() does what we wan for this CPU */
 	key = irq_lock();
@@ -178,12 +177,64 @@ void _arch_isr_direct_pm(void)
 }
 #endif
 
-#if defined(CONFIG_KERNEL_EVENT_LOGGER_SLEEP) || \
-	defined(CONFIG_KERNEL_EVENT_LOGGER_INTERRUPT)
 void _arch_isr_direct_header(void)
 {
-	_sys_k_event_logger_interrupt();
-	_sys_k_event_logger_exit_sleep();
+	z_sys_trace_isr_enter();
 }
-#endif
+
+#if defined(CONFIG_ARM_SECURE_FIRMWARE)
+/**
+ *
+ * @brief Set the target security state for the given IRQ
+ *
+ * Function sets the security state (Secure or Non-Secure) targeted
+ * by the given irq. It requires ARMv8-M MCU.
+ * It is only compiled if ARM_SECURE_FIRMWARE is defined.
+ * It should only be called while in Secure state, otherwise, a write attempt
+ * to NVIC.ITNS register is write-ignored(WI), as the ITNS register is not
+ * banked between security states and, therefore, has no Non-Secure instance.
+ *
+ * It shall assert if the operation is not performed successfully.
+ *
+ * @param irq IRQ line
+ * @param secure_state 1 if target state is Secure, 0 otherwise.
+ *
+ * @return N/A
+ */
+void irq_target_state_set(unsigned int irq, int secure_state)
+{
+	if (secure_state) {
+		/* Set target to Secure */
+		if (NVIC_ClearTargetState(irq) != 0) {
+			__ASSERT(0, "NVIC SetTargetState error");
+		}
+	} else {
+		/* Set target state to Non-Secure */
+		if (NVIC_SetTargetState(irq) != 1) {
+			__ASSERT(0, "NVIC SetTargetState error");
+		}
+	}
+}
+
+/**
+ *
+ * @brief Determine whether the given IRQ targets the Secure state
+ *
+ * Function determines whether the given irq targets the Secure state
+ * or not (i.e. targets the Non-Secure state). It requires ARMv8-M MCU.
+ * It is only compiled if ARM_SECURE_FIRMWARE is defined.
+ * It should only be called while in Secure state, otherwise, a read attempt
+ * to NVIC.ITNS register is read-as-zero(RAZ), as the ITNS register is not
+ * banked between security states and, therefore, has no Non-Secure instance.
+ *
+ * @param irq IRQ line
+ *
+ * @return 1 if target state is Secure, 0 otherwise.
+ */
+int irq_target_state_is_secure(unsigned int irq)
+{
+	return NVIC_GetTargetState(irq) == 0;
+}
+
+#endif /* CONFIG_ARM_SECURE_FIRMWARE */
 

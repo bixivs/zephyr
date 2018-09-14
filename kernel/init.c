@@ -30,6 +30,8 @@
 #include <kernel_internal.h>
 #include <kswap.h>
 #include <entropy.h>
+#include <logging/log_ctrl.h>
+#include <tracing.h>
 
 /* kernel build timestamp items */
 #define BUILD_TIMESTAMP "BUILD: " __DATE__ " " __TIME__
@@ -127,6 +129,7 @@ K_THREAD_STACK_DEFINE(_interrupt_stack3, CONFIG_ISR_STACK_SIZE);
 
 extern void idle(void *unused1, void *unused2, void *unused3);
 
+/* LCOV_EXCL_START */
 #if defined(CONFIG_INIT_STACKS) && defined(CONFIG_PRINTK)
 extern K_THREAD_STACK_DEFINE(sys_work_q_stack,
 			     CONFIG_SYSTEM_WORKQUEUE_STACK_SIZE);
@@ -143,6 +146,7 @@ void k_call_stacks_analyze(void)
 #else
 void k_call_stacks_analyze(void) { }
 #endif
+/* LCOV_EXCL_STOP */
 
 /**
  *
@@ -178,14 +182,18 @@ void _bss_zero(void)
  */
 void _data_copy(void)
 {
-	memcpy(&__data_ram_start, &__data_rom_start,
+	(void)memcpy(&__data_ram_start, &__data_rom_start,
 		 ((u32_t) &__data_ram_end - (u32_t) &__data_ram_start));
 #ifdef CONFIG_CCM_BASE_ADDRESS
-	memcpy(&__ccm_data_start, &__ccm_data_rom_start,
+	(void)memcpy(&__ccm_data_start, &__ccm_data_rom_start,
 		 ((u32_t) &__ccm_data_end - (u32_t) &__ccm_data_start));
 #endif
+#ifdef CONFIG_APP_SHARED_MEM
+	(void)memcpy(&_app_smem_start, &_app_smem_rom_start,
+		 ((u32_t) &_app_smem_end - (u32_t) &_app_smem_start));
+#endif
 #ifdef CONFIG_APPLICATION_MEMORY
-	memcpy(&__app_data_ram_start, &__app_data_rom_start,
+	(void)memcpy(&__app_data_ram_start, &__app_data_rom_start,
 		 ((u32_t) &__app_data_ram_end - (u32_t) &__app_data_ram_start));
 #endif
 }
@@ -280,6 +288,7 @@ static void init_idle_thread(struct k_thread *thr, k_thread_stack_t *stack)
  *
  * @return N/A
  */
+#ifdef CONFIG_MULTITHREADING
 static void prepare_multithreading(struct k_thread *dummy_thread)
 {
 #ifdef CONFIG_ARCH_HAS_CUSTOM_SWAP_TO_MAIN
@@ -326,12 +335,16 @@ static void prepare_multithreading(struct k_thread *dummy_thread)
 			  MAIN_STACK_SIZE, bg_thread_main,
 			  NULL, NULL, NULL,
 			  CONFIG_MAIN_THREAD_PRIORITY, K_ESSENTIAL);
+
+	sys_trace_thread_create(_main_thread);
+
 	_mark_thread_as_started(_main_thread);
 	_ready_thread(_main_thread);
 
 #ifdef CONFIG_MULTITHREADING
 	init_idle_thread(_idle_thread, _idle_stack);
 	_kernel.cpus[0].idle_thread = _idle_thread;
+	sys_trace_thread_create(_idle_thread);
 #endif
 
 #if defined(CONFIG_SMP) && CONFIG_MP_NUM_CPUS > 1
@@ -377,6 +390,7 @@ static void switch_to_main_thread(void)
 	_Swap(irq_lock());
 #endif
 }
+#endif /* CONFIG_MULTITHREDING */
 
 u32_t z_early_boot_rand32_get(void)
 {
@@ -422,6 +436,18 @@ sys_rand32_fallback:
 extern uintptr_t __stack_chk_guard;
 #endif /* CONFIG_STACK_CANARIES */
 
+#ifndef CONFIG_MULTITHREADING
+static void enable_interrupts(void)
+{
+#ifdef Z_ARCH_INT_ENABLE
+	Z_ARCH_INT_ENABLE();
+#else
+# pragma message "Z_ARCH_INT_ENABLE not defined for this architecture."
+# pragma message "Entry to MULTITHREADING=n app code will be with interrupts disabled."
+#endif
+}
+#endif
+
 /**
  *
  * @brief Initialize kernel
@@ -434,6 +460,7 @@ extern uintptr_t __stack_chk_guard;
  */
 FUNC_NORETURN void _Cstart(void)
 {
+#ifdef CONFIG_MULTITHREADING
 #ifdef CONFIG_ARCH_HAS_CUSTOM_SWAP_TO_MAIN
 	struct k_thread *dummy_thread = NULL;
 #else
@@ -445,6 +472,7 @@ FUNC_NORETURN void _Cstart(void)
 
 	memset(dummy_thread_memory, 0, sizeof(dummy_thread_memory));
 #endif
+#endif
 	/*
 	 * The interrupt library needs to be initialized early since a series
 	 * of handlers are installed into the interrupt table to catch
@@ -454,6 +482,10 @@ FUNC_NORETURN void _Cstart(void)
 	 */
 
 	_IntLibInit();
+
+	if (IS_ENABLED(CONFIG_LOG)) {
+		log_core_init();
+	}
 
 	/* perform any architecture-specific initialization */
 	kernel_arch_init();
@@ -466,11 +498,16 @@ FUNC_NORETURN void _Cstart(void)
 	__stack_chk_guard = z_early_boot_rand32_get();
 #endif
 
+#ifdef CONFIG_MULTITHREADING
 	prepare_multithreading(dummy_thread);
-
-	/* display boot banner */
-
 	switch_to_main_thread();
+#else
+	enable_interrupts();
+	bg_thread_main(NULL, NULL, NULL);
+
+	while (1) {
+	}
+#endif
 
 	/*
 	 * Compiler can't tell that the above routines won't return and issues

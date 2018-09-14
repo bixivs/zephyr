@@ -46,6 +46,7 @@ int main(void)
 	int serv;
 	struct sockaddr_in bind_addr;
 	static int counter;
+	int ret;
 
 	serv = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 	CHECK(serv);
@@ -82,9 +83,19 @@ int main(void)
 		 * connection reset error).
 		 */
 		while (1) {
+			ssize_t r;
 			char c;
 
-			recv(client, &c, 1, 0);
+			r = recv(client, &c, 1, 0);
+			if (r < 0) {
+				if (errno == EAGAIN || errno == EINTR) {
+					continue;
+				}
+
+				printf("Got error %d when receiving from "
+				       "socket\n", errno);
+				goto close_client;
+			}
 			if (req_state == 0 && c == '\r') {
 				req_state++;
 			} else if (req_state == 1 && c == '\n') {
@@ -111,8 +122,14 @@ int main(void)
 			len -= sent_len;
 		}
 
-		close(client);
-		printf("Connection from %s closed\n", addr_str);
+close_client:
+		ret = close(client);
+		if (ret == 0) {
+			printf("Connection from %s closed\n", addr_str);
+		} else {
+			printf("Got error %d while closing the "
+			       "socket\n", errno);
+		}
 
 #if defined(__ZEPHYR__) && defined(CONFIG_NET_BUF_POOL_USAGE)
 		struct k_mem_slab *rx, *tx;

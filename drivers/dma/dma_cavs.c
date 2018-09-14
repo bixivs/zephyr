@@ -233,10 +233,18 @@ static int dw_dma_config(struct device *dev, u32_t channel,
 		cnt--;
 	} while (cfg_blocks && cnt);
 
-	/* Cyclic buffer not supported */
-	lli_desc_tail->llp = 0x0;
-	lli_desc_tail->ctrl_lo &=
-		~(DW_CTLL_LLP_S_EN | DW_CTLL_LLP_D_EN);
+	/* check if application requests circular list */
+	if (cfg_blocks) {
+		/*
+		 * if the last block was pointing to another block, then
+		 * it means the application is requesting a circular list
+		 */
+		lli_desc_tail->llp = (u32_t)chan_data->lli;
+	} else {
+		lli_desc_tail->llp = 0x0;
+		lli_desc_tail->ctrl_lo &=
+			~(DW_CTLL_LLP_S_EN | DW_CTLL_LLP_D_EN);
+	}
 
 #ifdef CONFIG_DCACHE_WRITEBACK
 	/* Flush the cache so that the descriptors are written to the memory.
@@ -320,19 +328,9 @@ static int dw_dma_transfer_start(struct device *dev, u32_t channel)
 static int dw_dma_transfer_stop(struct device *dev, u32_t channel)
 {
 	const struct dw_dma_dev_cfg *const dev_cfg = DEV_CFG(dev);
-	struct dw_dma_dev_data *const dev_data = DEV_DATA(dev);
-	struct dma_chan_data *chan_data;
 
 	if (channel >= DW_MAX_CHAN) {
 		return -EINVAL;
-	}
-
-	/* Free up the dynamic memory used in case it is not already freed.
-	 * This may have happened because of some errors.
-	 */
-	chan_data = &dev_data->chan[channel];
-	if (chan_data->lli) {
-		k_free(chan_data->lli);
 	}
 
 	/* mask block, transfer and error interrupts for channel */
@@ -340,6 +338,8 @@ static int dw_dma_transfer_stop(struct device *dev, u32_t channel)
 	dw_write(dev_cfg->base, DW_MASK_BLOCK, INT_MASK(channel));
 	dw_write(dev_cfg->base, DW_MASK_ERR, INT_MASK(channel));
 
+	/* disable the channel */
+	dw_write(dev_cfg->base, DW_DMA_CHAN_EN, CHAN_DISABLE(channel));
 	return 0;
 }
 
@@ -389,10 +389,6 @@ found:
 static int dw_dma0_initialize(struct device *dev)
 {
 	const struct dw_dma_dev_cfg *const dev_cfg = DEV_CFG(dev);
-
-#ifdef CONFIG_SOC_INTEL_S1000
-	setup_ownership_dma0();
-#endif
 
 	/* Disable all channels and Channel interrupts */
 	dw_dma_setup(dev);

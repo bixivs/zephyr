@@ -27,6 +27,7 @@
 #include <kernel_internal.h>
 #include <kswap.h>
 #include <init.h>
+#include <tracing.h>
 
 extern struct _static_thread_data _static_thread_data_list_start[];
 extern struct _static_thread_data _static_thread_data_list_end[];
@@ -37,9 +38,9 @@ extern struct _static_thread_data _static_thread_data_list_end[];
 	     thread_data < _static_thread_data_list_end; \
 	     thread_data++)
 
-#if defined(CONFIG_THREAD_MONITOR)
 void k_thread_foreach(k_thread_user_cb_t user_cb, void *user_data)
 {
+#if defined(CONFIG_THREAD_MONITOR)
 	struct k_thread *thread;
 	unsigned int key;
 
@@ -56,10 +57,8 @@ void k_thread_foreach(k_thread_user_cb_t user_cb, void *user_data)
 		user_cb(thread, user_data);
 	}
 	irq_unlock(key);
-}
-#else
-void k_thread_foreach(k_thread_user_cb_t user_cb, void *user_data) { }
 #endif
+}
 
 int k_is_in_isr(void)
 {
@@ -296,8 +295,40 @@ void _setup_new_thread(struct k_thread *new_thread,
 {
 	stack_size = adjust_stack_size(stack_size);
 
+#ifdef CONFIG_THREAD_USERSPACE_LOCAL_DATA
+#ifndef CONFIG_THREAD_USERSPACE_LOCAL_DATA_ARCH_DEFER_SETUP
+	/* reserve space on top of stack for local data */
+	stack_size = STACK_ROUND_DOWN(stack_size
+			- sizeof(*new_thread->userspace_local_data));
+#endif
+#endif
+
 	_new_thread(new_thread, stack, stack_size, entry, p1, p2, p3,
 		    prio, options);
+
+#ifdef CONFIG_THREAD_USERSPACE_LOCAL_DATA
+#ifndef CONFIG_THREAD_USERSPACE_LOCAL_DATA_ARCH_DEFER_SETUP
+	/* don't set again if the arch's own code in _new_thread() has
+	 * already set the pointer.
+	 */
+	new_thread->userspace_local_data =
+		(struct _thread_userspace_local_data *)
+		(K_THREAD_STACK_BUFFER(stack) + stack_size);
+#endif
+#endif
+
+#ifdef CONFIG_THREAD_MONITOR
+	new_thread->entry.pEntry = entry;
+	new_thread->entry.parameter1 = p1;
+	new_thread->entry.parameter2 = p2;
+	new_thread->entry.parameter3 = p3;
+
+	unsigned int key = irq_lock();
+
+	new_thread->next_thread = _kernel.threads;
+	_kernel.threads = new_thread;
+	irq_unlock(key);
+#endif
 #ifdef CONFIG_USERSPACE
 	_k_object_init(new_thread);
 	_k_object_init(stack);
@@ -328,6 +359,7 @@ void _setup_new_thread(struct k_thread *new_thread,
 	new_thread->base.prio_deadline = 0;
 #endif
 	new_thread->resource_pool = _current->resource_pool;
+	sys_trace_thread_create(new_thread);
 }
 
 #ifdef CONFIG_MULTITHREADING
@@ -338,12 +370,14 @@ k_tid_t _impl_k_thread_create(struct k_thread *new_thread,
 			      int prio, u32_t options, s32_t delay)
 {
 	__ASSERT(!_is_in_isr(), "Threads may not be created in ISRs");
+
 	_setup_new_thread(new_thread, stack, stack_size, entry, p1, p2, p3,
 			  prio, options);
 
 	if (delay != K_FOREVER) {
 		schedule_new_thread(new_thread, delay);
 	}
+
 	return new_thread;
 }
 
@@ -432,11 +466,12 @@ Z_SYSCALL_HANDLER(k_thread_create,
 #endif /* CONFIG_USERSPACE */
 #endif /* CONFIG_MULTITHREADING */
 
+/* LCOV_EXCL_START */
 int _impl_k_thread_cancel(k_tid_t tid)
 {
 	struct k_thread *thread = tid;
 
-	int key = irq_lock();
+	unsigned int key = irq_lock();
 
 	if (_has_thread_started(thread) ||
 	    !_is_thread_timeout_active(thread)) {
@@ -455,6 +490,7 @@ int _impl_k_thread_cancel(k_tid_t tid)
 #ifdef CONFIG_USERSPACE
 Z_SYSCALL_HANDLER1_SIMPLE(k_thread_cancel, K_OBJ_THREAD, struct k_thread *);
 #endif
+/* LCOV_EXCL_STOP */
 
 void _k_thread_single_suspend(struct k_thread *thread)
 {
@@ -470,6 +506,8 @@ void _impl_k_thread_suspend(struct k_thread *thread)
 	unsigned int  key = irq_lock();
 
 	_k_thread_single_suspend(thread);
+
+	sys_trace_thread_suspend(thread);
 
 	if (thread == _current) {
 		_Swap(key);
@@ -494,6 +532,7 @@ void _impl_k_thread_resume(struct k_thread *thread)
 
 	_k_thread_single_resume(thread);
 
+	sys_trace_thread_resume(thread);
 	_reschedule(key);
 }
 
@@ -519,9 +558,8 @@ void _k_thread_single_abort(struct k_thread *thread)
 	}
 
 	thread->base.thread_state |= _THREAD_DEAD;
-#ifdef CONFIG_KERNEL_EVENT_LOGGER_THREAD
-	_sys_k_event_logger_thread_exit(thread);
-#endif
+
+	sys_trace_thread_abort(thread);
 
 #ifdef CONFIG_USERSPACE
 	/* Clear initailized state so that this thread object may be re-used
@@ -641,6 +679,12 @@ FUNC_NORETURN void k_thread_user_mode_enter(k_thread_entry_t entry,
 {
 	_current->base.user_options |= K_USER;
 	_thread_essential_clear();
+#ifdef CONFIG_THREAD_MONITOR
+	_current->entry.pEntry = entry;
+	_current->entry.parameter1 = p1;
+	_current->entry.parameter2 = p2;
+	_current->entry.parameter3 = p3;
+#endif
 #ifdef CONFIG_USERSPACE
 	_arch_user_mode_enter(entry, p1, p2, p3);
 #else

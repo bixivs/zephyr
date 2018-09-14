@@ -112,12 +112,12 @@ static void prepare_thread_to_run(struct k_thread *thread, void *data)
 }
 #endif /* CONFIG_POLL */
 
+#ifdef CONFIG_POLL
 static inline void handle_poll_events(struct k_queue *queue, u32_t state)
 {
-#ifdef CONFIG_POLL
 	_handle_obj_poll_events(&queue->poll_events, state);
-#endif
 }
+#endif
 
 void _impl_k_queue_cancel_wait(struct k_queue *queue)
 {
@@ -184,17 +184,18 @@ static int queue_insert(struct k_queue *queue, void *prev, void *data,
 
 void k_queue_insert(struct k_queue *queue, void *prev, void *data)
 {
-	queue_insert(queue, prev, data, false);
+	(void)queue_insert(queue, prev, data, false);
 }
 
 void k_queue_append(struct k_queue *queue, void *data)
 {
-	queue_insert(queue, sys_sflist_peek_tail(&queue->data_q), data, false);
+	(void)queue_insert(queue, sys_sflist_peek_tail(&queue->data_q),
+			   data, false);
 }
 
 void k_queue_prepend(struct k_queue *queue, void *data)
 {
-	queue_insert(queue, NULL, data, false);
+	(void)queue_insert(queue, NULL, data, false);
 }
 
 int _impl_k_queue_alloc_append(struct k_queue *queue, void *data)
@@ -274,23 +275,26 @@ void k_queue_merge_slist(struct k_queue *queue, sys_slist_t *list)
 static void *k_queue_poll(struct k_queue *queue, s32_t timeout)
 {
 	struct k_poll_event event;
-	int err;
+	int err, elapsed = 0, done = 0;
 	unsigned int key;
 	void *val;
+	u32_t start;
 
 	k_poll_event_init(&event, K_POLL_TYPE_FIFO_DATA_AVAILABLE,
 			  K_POLL_MODE_NOTIFY_ONLY, queue);
 
+	if (timeout != K_FOREVER) {
+		start = k_uptime_get_32();
+	}
+
 	do {
 		event.state = K_POLL_STATE_NOT_READY;
 
-		err = k_poll(&event, 1, timeout);
-		if (err) {
+		err = k_poll(&event, 1, timeout - elapsed);
+
+		if (err && err != -EAGAIN) {
 			return NULL;
 		}
-
-		__ASSERT_NO_MSG(event.state ==
-				K_POLL_STATE_FIFO_DATA_AVAILABLE);
 
 		/* sys_sflist_* aren't threadsafe, so must be always protected
 		 * by irq_lock.
@@ -298,7 +302,12 @@ static void *k_queue_poll(struct k_queue *queue, s32_t timeout)
 		key = irq_lock();
 		val = z_queue_node_peek(sys_sflist_get(&queue->data_q), true);
 		irq_unlock(key);
-	} while (!val && timeout == K_FOREVER);
+
+		if (!val && timeout != K_FOREVER) {
+			elapsed = k_uptime_get_32() - start;
+			done = elapsed > timeout;
+		}
+	} while (!val && !done);
 
 	return val;
 }

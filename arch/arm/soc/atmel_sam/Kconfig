@@ -6,7 +6,6 @@
 config SOC_FAMILY_SAM
 	bool
 	# omit prompt to signify a "hidden" option
-	default n
 
 if SOC_FAMILY_SAM
 
@@ -15,6 +14,6 @@ config SOC_FAMILY
 	default "atmel_sam"
 
 # Select SoC Part No. and configuration options
-gsource "arch/arm/soc/atmel_sam/*/Kconfig.soc"
+source "arch/arm/soc/atmel_sam/*/Kconfig.soc"
 
 endif # SOC_FAMILY_SAM
